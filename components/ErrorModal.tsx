@@ -28,11 +28,11 @@ export const ErrorModal: React.FC<ErrorModalProps> = ({
       role="dialog"
       aria-labelledby="error-modal-title">
       <div
-        className="bg-gray-800 rounded-lg shadow-2xl w-full max-w-md relative p-8 m-4 text-center"
+        className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl w-full max-w-md relative p-8 m-4 text-center"
         onClick={(e) => e.stopPropagation()}>
         <button
           onClick={onClose}
-          className="absolute top-3 right-3 text-gray-400 hover:text-white z-10 p-2 rounded-full bg-transparent hover:bg-gray-700 transition-colors"
+          className="absolute top-3 right-3 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white z-10 p-2 rounded-full bg-transparent hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
           aria-label="Close error message">
           <XMarkIcon className="w-6 h-6" />
         </button>
@@ -54,21 +54,23 @@ export const ErrorModal: React.FC<ErrorModalProps> = ({
         </div>
         <h2
           id="error-modal-title"
-          className="text-xl font-bold text-white mb-2">
+          className="text-xl font-bold text-gray-900 dark:text-white mb-2">
           Generation Failed
         </h2>
-        {message.map((m) => (
-          <p className="text-gray-400">{m}</p>
+        {message.map((m, i) => (
+          <p key={i} className="text-gray-500 dark:text-gray-400">
+            {m}
+          </p>
         ))}
         <div className="mt-8 flex justify-center gap-4">
           <button
             onClick={onSelectKey}
-            className="px-8 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-800">
+            className="px-8 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-100 dark:focus-visible:ring-offset-gray-800">
             Add API Key
           </button>
           <button
             onClick={onClose}
-            className="px-8 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-800">
+            className="px-8 py-2 rounded-lg bg-gray-500 hover:bg-gray-600 dark:bg-gray-600 dark:hover:bg-gray-700 text-white font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-100 dark:focus-visible:ring-offset-gray-800">
             Close
           </button>
         </div>

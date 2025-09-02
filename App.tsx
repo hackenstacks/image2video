@@ -2,14 +2,17 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
 */
-import React, {useRef, useState} from 'react';
+import React, {useRef, useState, useEffect} from 'react';
 import {EditVideoPage} from './components/EditVideoPage';
 import {ErrorModal} from './components/ErrorModal';
 import {
   ArrowPathIcon,
   ChevronDownIcon,
   DocumentArrowUpIcon,
+  MoonIcon,
+  QuestionMarkCircleIcon,
   SparklesIcon,
+  SunIcon,
   UploadIcon,
   VideoCameraIcon,
   XMarkIcon,
@@ -19,38 +22,54 @@ import {VideoGrid} from './components/VideoGrid';
 import {VideoPlayer} from './components/VideoPlayer';
 import {MOCK_VIDEOS} from './constants';
 import {Video} from './types';
-
 import {GeneratedVideo, GoogleGenAI} from '@google/genai';
+import {HelpModal} from './components/HelpModal';
 
 const VEO_MODEL_NAME = 'veo-2.0-generate-001';
 const FLASH_MODEL_NAME = 'gemini-2.5-flash';
 
 const ai = new GoogleGenAI({apiKey: process.env.API_KEY});
 
+const EFFECTS = [
+  {name: 'None', prompt: ''},
+  {
+    name: 'Cinematic',
+    prompt:
+      ', cinematic style, dramatic lighting, high contrast, wide-angle shot',
+  },
+  {name: 'Anime', prompt: ', anime style, vibrant colors, cel-shaded'},
+  {
+    name: 'Vintage',
+    prompt: ', vintage film look, grain, slightly desaturated colors, 1960s',
+  },
+  {name: 'Claymation', prompt: ', claymation style, stop-motion animation'},
+  {name: 'Watercolor', prompt: ', watercolor painting style, soft edges'},
+];
+
 // --- UI Components ---
 
-interface ImageUploaderProps {
-  onImageUpload: (base64Image: string, mimeType: string) => void;
-  onImageRemove: () => void;
-  uploadedImagePreview: string | null;
+interface UploadedFile {
+  id: string;
+  file: File;
+  preview: string;
+  type: 'image' | 'video';
+}
+interface MediaUploaderProps {
+  onFilesUpload: (files: File[]) => void;
+  onFileRemove: (fileId: string) => void;
+  uploadedFiles: UploadedFile[];
 }
 
-const ImageUploader: React.FC<ImageUploaderProps> = ({
-  onImageUpload,
-  onImageRemove,
-  uploadedImagePreview,
+const MediaUploader: React.FC<MediaUploaderProps> = ({
+  onFilesUpload,
+  onFileRemove,
+  uploadedFiles,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const hasVideo = uploadedFiles.some((f) => f.type === 'video');
 
-  const handleFileChange = (file: File) => {
-    if (file && file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64String = (reader.result as string).split(',')[1];
-        onImageUpload(base64String, file.type);
-      };
-      reader.readAsDataURL(file);
-    }
+  const handleFileChange = (selectedFiles: FileList) => {
+    onFilesUpload(Array.from(selectedFiles));
   };
 
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
@@ -58,49 +77,69 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({
   };
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
-    const file = e.dataTransfer.files[0];
-    handleFileChange(file);
+    handleFileChange(e.dataTransfer.files);
   };
   const handleClick = () => {
     fileInputRef.current?.click();
   };
-  const handleRemoveImage = () => {
-    if (fileInputRef.current) fileInputRef.current.value = '';
-    onImageRemove();
-  };
+
+  const acceptType = hasVideo ? '' : 'image/*,video/*';
+  const canUploadMore = !hasVideo;
 
   return (
     <div className="w-full">
-      {uploadedImagePreview ? (
-        <div className="relative group">
-          <img
-            src={uploadedImagePreview}
-            alt="Image preview"
-            className="w-full h-48 object-cover rounded-xl"
-          />
-          <button
-            onClick={handleRemoveImage}
-            className="absolute top-2 right-2 p-1 bg-black/50 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity"
-            aria-label="Remove image">
-            <XMarkIcon className="w-5 h-5" />
-          </button>
+      {uploadedFiles.length > 0 ? (
+        <div className="grid grid-cols-3 gap-2">
+          {uploadedFiles.map((file) => (
+            <div key={file.id} className="relative group aspect-square">
+              {file.type === 'image' ? (
+                <img
+                  src={file.preview}
+                  alt="Image preview"
+                  className="w-full h-full object-cover rounded-lg"
+                />
+              ) : (
+                <video
+                  src={file.preview}
+                  muted
+                  playsInline
+                  className="w-full h-full object-cover rounded-lg"
+                />
+              )}
+              <button
+                onClick={() => onFileRemove(file.id)}
+                className="absolute top-1 right-1 p-1 bg-black/60 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                aria-label="Remove file"
+                title="Remove file">
+                <XMarkIcon className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
         </div>
       ) : (
         <div
-          className="w-full h-48 border-2 border-dashed border-gray-600 rounded-xl flex flex-col items-center justify-center text-gray-400 cursor-pointer hover:bg-gray-700/50 hover:border-purple-500 transition-colors"
+          className="w-full h-48 border-2 border-dashed border-gray-400 dark:border-gray-600 rounded-xl flex flex-col items-center justify-center text-gray-500 dark:text-gray-400 cursor-pointer hover:bg-gray-200/50 dark:hover:bg-gray-700/50 hover:border-purple-500 transition-colors"
           onDragOver={handleDragOver}
           onDrop={handleDrop}
-          onClick={handleClick}>
+          onClick={handleClick}
+          role="button"
+          tabIndex={0}
+          aria-label="Upload media files">
           <UploadIcon className="w-10 h-10 mb-2" />
-          <p className="text-sm">Drag & drop or click to upload</p>
+          <p className="text-sm">Drag & drop images or a video</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+            or click to browse
+          </p>
           <input
             type="file"
             ref={fileInputRef}
             onChange={(e) =>
-              e.target.files && handleFileChange(e.target.files[0])
+              e.target.files && handleFileChange(e.target.files)
             }
             className="hidden"
-            accept="image/*"
+            accept={acceptType}
+            multiple={!hasVideo}
+            disabled={!canUploadMore}
           />
         </div>
       )}
@@ -192,10 +231,44 @@ async function generateVideoFromImageAndText(
   return processVideoGenerationOperation(operation);
 }
 
-/**
- * Main component for the Veo Gallery app.
- * It manages the state of videos, playing videos, editing videos and error handling.
- */
+async function extractFrameFromVideo(
+  videoFile: File,
+): Promise<{base64: string; mimeType: string}> {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.src = URL.createObjectURL(videoFile);
+    video.muted = true;
+
+    video.onloadeddata = () => {
+      video.currentTime = 0;
+    };
+
+    video.onseeked = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        return reject(new Error('Could not get canvas context'));
+      }
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg');
+      URL.revokeObjectURL(video.src);
+      resolve({
+        base64: dataUrl.split(',')[1],
+        mimeType: 'image/jpeg',
+      });
+    };
+
+    video.onerror = (e) => {
+      URL.revokeObjectURL(video.src);
+      reject(new Error('Failed to load video for frame extraction.'));
+    };
+
+    video.play().catch(reject);
+  });
+}
+
 export const App: React.FC = () => {
   const [videos, setVideos] = useState<Video[]>(MOCK_VIDEOS);
   const [playingVideo, setPlayingVideo] = useState<Video | null>(null);
@@ -205,37 +278,71 @@ export const App: React.FC = () => {
     null,
   );
   const [prompt, setPrompt] = useState('');
-  const [uploadedImage, setUploadedImage] = useState<{
-    base64: string;
-    mimeType: string;
-  } | null>(null);
-  const [uploadedImagePreview, setUploadedImagePreview] = useState<
-    string | null
-  >(null);
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const promptFileInputRef = useRef<HTMLInputElement>(null);
 
-  // New state for settings and prompt assist
   const [aspectRatio, setAspectRatio] = useState('16:9');
-  const [quality, setQuality] = useState('standard');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAssisting, setIsAssisting] = useState(false);
   const [hasAssisted, setHasAssisted] = useState(false);
+  const [theme, setTheme] = useState('dark');
+  const [showHelpModal, setShowHelpModal] = useState(false);
+  const [selectedEffect, setSelectedEffect] = useState(EFFECTS[0].name);
 
-  const handleImageUpload = (base64: string, mimeType: string) => {
-    setUploadedImage({base64, mimeType});
-    setUploadedImagePreview(`data:${mimeType};base64,${base64}`);
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === 'dark') {
+      root.classList.add('dark');
+    } else {
+      root.classList.remove('dark');
+    }
+  }, [theme]);
+
+  const handleFilesUpload = (files: File[]) => {
+    const newFiles: UploadedFile[] = [];
+    const hasVideoAlready = uploadedFiles.some((f) => f.type === 'video');
+
+    for (const file of files) {
+      if (file.type.startsWith('video/')) {
+        if (uploadedFiles.length === 0) {
+          newFiles.push({
+            id: self.crypto.randomUUID(),
+            file,
+            preview: URL.createObjectURL(file),
+            type: 'video',
+          });
+          // Allow only one video
+          break;
+        }
+      } else if (file.type.startsWith('image/')) {
+        if (!hasVideoAlready) {
+          newFiles.push({
+            id: self.crypto.randomUUID(),
+            file,
+            preview: URL.createObjectURL(file),
+            type: 'image',
+          });
+        }
+      }
+    }
+
+    if (newFiles.length > 0) {
+      if (newFiles[0].type === 'video') {
+        setUploadedFiles(newFiles);
+      } else {
+        setUploadedFiles((prev) => [...prev, ...newFiles]);
+      }
+    }
   };
 
-  const handleImageRemove = () => {
-    setUploadedImage(null);
-    setUploadedImagePreview(null);
+  const handleFileRemove = (fileId: string) => {
+    setUploadedFiles((prev) => prev.filter((f) => f.id !== fileId));
   };
 
   const handlePromptFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 1024 * 1024) {
-        // 1MB limit
         setGenerationError([
           'Prompt file is too large. Please select a file smaller than 1MB.',
         ]);
@@ -245,10 +352,6 @@ export const App: React.FC = () => {
       reader.onload = (event) => {
         const text = event.target?.result as string;
         setPrompt(text);
-      };
-      reader.onerror = (error) => {
-        console.error('Error reading file:', error);
-        setGenerationError(['Failed to read the prompt file.']);
       };
       reader.readAsText(file);
     }
@@ -284,23 +387,6 @@ export const App: React.FC = () => {
     }
   };
 
-  const handlePlayVideo = (video: Video) => {
-    setPlayingVideo(video);
-  };
-
-  const handleClosePlayer = () => {
-    setPlayingVideo(null);
-  };
-
-  const handleStartEdit = (video: Video) => {
-    setPlayingVideo(null); // Close player
-    setEditingVideo(video); // Open edit page
-  };
-
-  const handleCancelEdit = () => {
-    setEditingVideo(null); // Close edit page, return to grid
-  };
-
   const handleSaveEdit = async (originalVideo: Video) => {
     setEditingVideo(null);
     setIsSaving(true);
@@ -308,28 +394,21 @@ export const App: React.FC = () => {
 
     try {
       const promptText = originalVideo.description;
-      console.log('Generating video...', promptText);
-      const videoObjects = await generateVideoFromText(promptText, '16:9'); // Default aspect ratio for edits
+      const videoObjects = await generateVideoFromText(promptText, '16:9');
 
       if (!videoObjects || videoObjects.length === 0) {
         throw new Error('Video generation returned no data.');
       }
 
-      console.log('Generated video data received.');
-
-      const mimeType = 'video/mp4';
-      const videoSrc = videoObjects[0];
-      const src = `data:${mimeType};base64,${videoSrc}`;
-
       const newVideo: Video = {
         id: self.crypto.randomUUID(),
         title: `Remix of "${originalVideo.title}"`,
         description: originalVideo.description,
-        videoUrl: src,
+        videoUrl: `data:video/mp4;base64,${videoObjects[0]}`,
       };
 
       setVideos((currentVideos) => [newVideo, ...currentVideos]);
-      setPlayingVideo(newVideo); // Go to the new video
+      setPlayingVideo(newVideo);
     } catch (error) {
       console.error('Video generation failed:', error);
       setGenerationError([
@@ -341,17 +420,29 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleGenerateFromImage = async () => {
-    if (!prompt || !uploadedImage) return;
+  const handleGenerate = async () => {
+    if (!prompt || uploadedFiles.length === 0) return;
 
     setIsSaving(true);
     setGenerationError(null);
 
     try {
-      console.log('Generating video from image and text...', prompt);
+      let imageInput: {base64: string; mimeType: string};
+      const firstFile = uploadedFiles[0];
+
+      if (firstFile.type === 'video') {
+        imageInput = await extractFrameFromVideo(firstFile.file);
+      } else {
+        const base64 = await bloblToBase64(firstFile.file);
+        imageInput = {base64, mimeType: firstFile.file.type};
+      }
+
+      const effect = EFFECTS.find((e) => e.name === selectedEffect);
+      const fullPrompt = prompt + (effect ? effect.prompt : '');
+
       const videoObjects = await generateVideoFromImageAndText(
-        prompt,
-        uploadedImage,
+        fullPrompt,
+        imageInput,
         aspectRatio,
       );
 
@@ -359,28 +450,23 @@ export const App: React.FC = () => {
         throw new Error('Video generation returned no data.');
       }
 
-      console.log('Generated video data received.');
-      const mimeType = 'video/mp4';
-      const videoSrc = videoObjects[0];
-      const src = `data:${mimeType};base64,${videoSrc}`;
-
       const newVideo: Video = {
         id: self.crypto.randomUUID(),
         title: `Video from prompt: ${prompt.substring(0, 30)}...`,
-        description: prompt,
-        videoUrl: src,
+        description: fullPrompt,
+        videoUrl: `data:video/mp4;base64,${videoObjects[0]}`,
       };
 
       setVideos((currentVideos) => [newVideo, ...currentVideos]);
       setPlayingVideo(newVideo);
       setPrompt('');
-      handleImageRemove();
+      setUploadedFiles([]);
       setHasAssisted(false);
     } catch (error) {
       console.error('Video generation failed:', error);
       setGenerationError([
-        'Video generation failed. Veo is only available on the Paid Tier.',
-        'Please select your Cloud Project to get started',
+        'Video generation failed. This may be due to a network issue or API key problem.',
+        'Please check your key and try again.',
       ]);
     } finally {
       setIsSaving(false);
@@ -392,79 +478,94 @@ export const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-[#1c162c] text-gray-100 font-sans">
+    <div className="min-h-screen bg-gray-100 dark:bg-gradient-to-br dark:from-gray-900 dark:to-[#1c162c] text-gray-800 dark:text-gray-100 font-sans">
       {editingVideo ? (
         <EditVideoPage
           video={editingVideo}
           onSave={handleSaveEdit}
-          onCancel={handleCancelEdit}
+          onCancel={() => setEditingVideo(null)}
         />
       ) : (
         <div className="mx-auto max-w-[1080px]">
-          <header className="p-6 md:p-8 text-center">
-            <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-purple-400 via-pink-500 to-red-500 text-transparent bg-clip-text inline-flex items-center gap-4">
-              <VideoCameraIcon className="w-10 h-10 md:w-12 md:h-12" />
-              <span>Image 2 Video</span>
+          <header className="p-6 md:p-8 flex justify-between items-center">
+            <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-purple-500 via-pink-500 to-red-500 text-transparent bg-clip-text inline-flex items-center gap-3">
+              <VideoCameraIcon className="w-8 h-8 md:w-10 md:h-10" />
+              <span>AI Video Generator</span>
             </h1>
-            <p className="text-gray-400 mt-2 text-lg">
-              Upload an image and enter a prompt to generate a video
-            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowHelpModal(true)}
+                className="p-2 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                title="Help"
+                aria-label="Open user manual">
+                <QuestionMarkCircleIcon className="w-6 h-6" />
+              </button>
+              <button
+                onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                className="p-2 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                title="Toggle theme"
+                aria-label={`Switch to ${
+                  theme === 'dark' ? 'light' : 'dark'
+                } mode`}>
+                {theme === 'dark' ? (
+                  <SunIcon className="w-6 h-6" />
+                ) : (
+                  <MoonIcon className="w-6 h-6" />
+                )}
+              </button>
+            </div>
           </header>
           <main className="px-4 md:px-8 pb-8">
-            <section className="mb-12 p-6 md:p-8 bg-gray-800/50 rounded-2xl border border-gray-700 shadow-xl shadow-purple-900/10">
-              <h2 className="text-xl md:text-2xl font-bold mb-4 text-white">
-                Create with Image & Text
+            <section className="mb-12 p-6 md:p-8 bg-white dark:bg-gray-800/50 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-xl shadow-purple-900/10">
+              <h2 className="text-xl md:text-2xl font-bold mb-4 text-gray-900 dark:text-white">
+                Generate with Media & Text
               </h2>
               <div className="grid md:grid-cols-2 gap-6 items-start">
-                <ImageUploader
-                  onImageUpload={handleImageUpload}
-                  onImageRemove={handleImageRemove}
-                  uploadedImagePreview={uploadedImagePreview}
+                <MediaUploader
+                  onFilesUpload={handleFilesUpload}
+                  onFileRemove={handleFileRemove}
+                  uploadedFiles={uploadedFiles}
                 />
                 <div className="flex flex-col h-full">
                   <div className="flex justify-between items-center mb-1">
                     <label
                       htmlFor="prompt-input"
-                      className="text-sm font-medium text-gray-300">
+                      className="text-sm font-medium text-gray-600 dark:text-gray-300">
                       Prompt
                     </label>
                     <div className="flex items-center gap-3">
-                      {hasAssisted && (
-                        <button
-                          onClick={handlePromptAssist}
-                          disabled={isAssisting || !prompt}
-                          className="inline-flex items-center gap-1.5 text-sm text-purple-400 hover:text-purple-300 font-medium transition-colors disabled:opacity-50 disabled:cursor-wait"
-                          aria-label="Regenerate prompt with AI">
-                          <ArrowPathIcon className="w-4 h-4" />
-                          <span>Regenerate</span>
-                        </button>
-                      )}
                       <button
                         onClick={handlePromptAssist}
                         disabled={isAssisting || !prompt}
-                        className="inline-flex items-center gap-1.5 text-sm text-purple-400 hover:text-purple-300 font-medium transition-colors disabled:opacity-50 disabled:cursor-wait"
+                        className="inline-flex items-center gap-1.5 text-sm text-purple-500 hover:text-purple-600 dark:text-purple-400 dark:hover:text-purple-300 font-medium transition-colors disabled:opacity-50 disabled:cursor-wait"
+                        title={
+                          hasAssisted ? 'Regenerate prompt' : 'Assist with prompt'
+                        }
                         aria-label="Assist with prompt generation">
-                        <SparklesIcon className="w-5 h-5" />
-                        <span>Assist</span>
+                        {hasAssisted ? (
+                          <ArrowPathIcon className="w-4 h-4" />
+                        ) : (
+                          <SparklesIcon className="w-5 h-5" />
+                        )}
+                        <span>{hasAssisted ? 'Regenerate' : 'Assist'}</span>
                       </button>
                     </div>
                   </div>
                   <textarea
                     id="prompt-input"
                     rows={5}
-                    className="w-full bg-gray-900 border border-gray-700 rounded-xl p-3 text-gray-200 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-shadow duration-200 flex-grow"
-                    placeholder="Enter keywords to animate your image, or use Assist..."
+                    className="w-full bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-xl p-3 text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-shadow duration-200 flex-grow"
+                    placeholder="Describe the video you want to create..."
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
-                    aria-label="Video generation prompt"
                   />
                   <div className="flex justify-end mt-2">
                     <button
                       onClick={handleUploadPromptClick}
-                      className="inline-flex items-center gap-2 text-sm text-purple-400 hover:text-purple-300 font-medium transition-colors"
-                      aria-label="Upload prompt from a text file">
+                      className="inline-flex items-center gap-2 text-sm text-purple-500 hover:text-purple-600 dark:text-purple-400 dark:hover:text-purple-300 font-medium transition-colors"
+                      title="Upload prompt from a text file">
                       <DocumentArrowUpIcon className="w-5 h-5" />
-                      <span>Upload from file</span>
+                      <span>Upload prompt</span>
                     </button>
                   </div>
                   <input
@@ -474,12 +575,34 @@ export const App: React.FC = () => {
                     className="hidden"
                     accept=".txt,.md"
                   />
-                  {/* Settings Section */}
+
+                  <div className="mt-4">
+                    <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">
+                      Effects
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {EFFECTS.map((effect) => (
+                        <button
+                          key={effect.name}
+                          onClick={() => setSelectedEffect(effect.name)}
+                          className={`px-3 py-1.5 text-sm rounded-full transition-colors ${
+                            selectedEffect === effect.name
+                              ? 'bg-purple-600 text-white font-semibold'
+                              : 'bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200'
+                          }`}
+                          title={effect.prompt}>
+                          {effect.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   <div className="mt-4">
                     <button
                       onClick={() => setIsSettingsOpen(!isSettingsOpen)}
-                      className="flex justify-between items-center w-full text-left text-sm font-medium text-gray-300">
-                      <span>Settings</span>
+                      className="flex justify-between items-center w-full text-left text-sm font-medium text-gray-600 dark:text-gray-300"
+                      title="Toggle advanced settings">
+                      <span>Advanced Settings</span>
                       <ChevronDownIcon
                         className={`w-5 h-5 transition-transform ${
                           isSettingsOpen ? 'transform rotate-180' : ''
@@ -491,14 +614,14 @@ export const App: React.FC = () => {
                         <div>
                           <label
                             htmlFor="aspect-ratio"
-                            className="block text-xs font-medium text-gray-400 mb-1">
+                            className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
                             Aspect Ratio
                           </label>
                           <select
                             id="aspect-ratio"
                             value={aspectRatio}
                             onChange={(e) => setAspectRatio(e.target.value)}
-                            className="w-full bg-gray-900 border border-gray-700 rounded-md p-2 text-sm text-gray-200 focus:ring-1 focus:ring-purple-500 focus:border-purple-500">
+                            className="w-full bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-md p-2 text-sm text-gray-800 dark:text-gray-200 focus:ring-1 focus:ring-purple-500 focus:border-purple-500">
                             <option value="16:9">16:9 (Widescreen)</option>
                             <option value="9:16">9:16 (Vertical)</option>
                             <option value="1:1">1:1 (Square)</option>
@@ -506,35 +629,23 @@ export const App: React.FC = () => {
                             <option value="3:4">3:4 (Portrait)</option>
                           </select>
                         </div>
-                        <div>
-                          <label
-                            htmlFor="quality"
-                            className="block text-xs font-medium text-gray-400 mb-1">
-                            Quality
-                          </label>
-                          <select
-                            id="quality"
-                            value={quality}
-                            onChange={(e) => setQuality(e.target.value)}
-                            className="w-full bg-gray-900 border border-gray-700 rounded-md p-2 text-sm text-gray-200 focus:ring-1 focus:ring-purple-500 focus:border-purple-500">
-                            <option value="standard">Standard</option>
-                            <option value="high">High</option>
-                          </select>
-                        </div>
                       </div>
                     )}
                   </div>
 
                   <button
-                    onClick={handleGenerateFromImage}
-                    disabled={!prompt || !uploadedImage || isAssisting}
-                    className="mt-4 w-full px-6 py-3 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold transition-colors disabled:bg-gray-600 disabled:cursor-not-allowed shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-purple-500">
+                    onClick={handleGenerate}
+                    disabled={!prompt || uploadedFiles.length === 0 || isAssisting}
+                    className="mt-6 w-full px-6 py-3 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold transition-colors disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-100 dark:focus:ring-offset-gray-800 focus:ring-purple-500">
                     {isAssisting ? 'Assisting...' : 'Generate Video'}
                   </button>
                 </div>
               </div>
             </section>
-            <VideoGrid videos={videos} onPlayVideo={handlePlayVideo} />
+            <VideoGrid
+              videos={videos}
+              onPlayVideo={(video) => setPlayingVideo(video)}
+            />
           </main>
         </div>
       )}
@@ -542,10 +653,15 @@ export const App: React.FC = () => {
       {playingVideo && (
         <VideoPlayer
           video={playingVideo}
-          onClose={handleClosePlayer}
-          onEdit={handleStartEdit}
+          onClose={() => setPlayingVideo(null)}
+          onEdit={(video) => {
+            setPlayingVideo(null);
+            setEditingVideo(video);
+          }}
         />
       )}
+
+      {showHelpModal && <HelpModal onClose={() => setShowHelpModal(false)} />}
 
       {generationError && (
         <ErrorModal

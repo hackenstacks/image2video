@@ -1,6 +1,6 @@
 {
-  "name": "Imgenvid",
-  "description": "Upload an image to generate a video produced with a prompt",
+  "name": "AI Video Generator",
+  "description": "Upload images or a video and use a text prompt to generate a new video with various effects and styles.",
   "requestFramePermissions": [],
   "prompt": ""
 }
