@@ -1,0 +1,6 @@
+{
+  "name": "Imgenvid",
+  "description": "Upload an image to generate a video produced with a prompt",
+  "requestFramePermissions": [],
+  "prompt": ""
+}
