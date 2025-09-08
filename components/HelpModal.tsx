@@ -50,19 +50,22 @@ export const HelpModal: React.FC<HelpModalProps> = ({onClose}) => {
               1. Uploading Media
             </h4>
             <p className="mt-1">
-              You can upload either multiple images or a single video to use as
-              a base for your generation.
+              You can upload media in two ways: by adding multiple images, or
+              uploading a single video. These are mutually exclusive options.
             </p>
             <ul className="list-disc list-inside space-y-1 pl-4 mt-2">
               <li>
-                <strong>Images:</strong> Drag and drop or click the upload area
-                to select multiple image files. Note: Only the first image will
-                be used for video generation.
+                <strong>Multiple Images:</strong> Drag and drop, click to
+                browse, or use the "Add more" button to upload several images.
+                The AI will analyze all images to create a more detailed prompt
+                for your video, using the first image as the primary visual
+                starting point.
               </li>
               <li>
-                <strong>Video:</strong> You can upload a short video clip. A
-                single frame from the beginning of your video will be used as
-                the starting image for the AI.
+                <strong>Single Video:</strong> You can upload a short video
+                clip. A single frame from the beginning of your video will be
+                used as the starting image for the AI. No other images can be
+                uploaded alongside a video.
               </li>
             </ul>
           </div>

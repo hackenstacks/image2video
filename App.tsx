@@ -3,27 +3,28 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 import React, {useRef, useState, useEffect} from 'react';
-import {EditVideoPage} from './components/EditVideoPage';
-import {ErrorModal} from './components/ErrorModal';
 import {
+  EditVideoPage,
+  ErrorModal,
+  HelpModal,
+  SavingProgressPage,
+  VideoGrid,
+  VideoPlayer,
   ArrowPathIcon,
   ChevronDownIcon,
   DocumentArrowUpIcon,
   MoonIcon,
+  PlusIcon,
   QuestionMarkCircleIcon,
   SparklesIcon,
   SunIcon,
   UploadIcon,
   VideoCameraIcon,
   XMarkIcon,
-} from './components/icons';
-import {SavingProgressPage} from './components/SavingProgressPage';
-import {VideoGrid} from './components/VideoGrid';
-import {VideoPlayer} from './components/VideoPlayer';
+} from './components';
 import {MOCK_VIDEOS} from './constants';
 import {Video} from './types';
 import {GeneratedVideo, GoogleGenAI} from '@google/genai';
-import {HelpModal} from './components/HelpModal';
 
 const VEO_MODEL_NAME = 'veo-2.0-generate-001';
 const FLASH_MODEL_NAME = 'gemini-2.5-flash';
@@ -44,6 +45,23 @@ const EFFECTS = [
   },
   {name: 'Claymation', prompt: ', claymation style, stop-motion animation'},
   {name: 'Watercolor', prompt: ', watercolor painting style, soft edges'},
+  {
+    name: 'Painterly',
+    prompt: ', painterly style, visible brushstrokes, rich colors, expressive',
+  },
+  {
+    name: 'Digital Drawing',
+    prompt:
+      ', digital art style, clean lines, vibrant flat colors, graphic novel look',
+  },
+  {
+    name: 'Realistic',
+    prompt: ', photorealistic, 8k, hyper-detailed, cinematic lighting',
+  },
+  {
+    name: 'Fantasy',
+    prompt: ', fantasy style, magical atmosphere, ethereal lighting, epic and grand scale',
+  },
 ];
 
 // --- UI Components ---
@@ -69,6 +87,7 @@ const MediaUploader: React.FC<MediaUploaderProps> = ({
   const hasVideo = uploadedFiles.some((f) => f.type === 'video');
 
   const handleFileChange = (selectedFiles: FileList) => {
+    if (!canUploadMore) return;
     onFilesUpload(Array.from(selectedFiles));
   };
 
@@ -77,9 +96,11 @@ const MediaUploader: React.FC<MediaUploaderProps> = ({
   };
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
+    if (!canUploadMore) return;
     handleFileChange(e.dataTransfer.files);
   };
   const handleClick = () => {
+    if (!canUploadMore) return;
     fileInputRef.current?.click();
   };
 
@@ -89,32 +110,50 @@ const MediaUploader: React.FC<MediaUploaderProps> = ({
   return (
     <div className="w-full">
       {uploadedFiles.length > 0 ? (
-        <div className="grid grid-cols-3 gap-2">
-          {uploadedFiles.map((file) => (
-            <div key={file.id} className="relative group aspect-square">
-              {file.type === 'image' ? (
-                <img
-                  src={file.preview}
-                  alt="Image preview"
-                  className="w-full h-full object-cover rounded-lg"
-                />
-              ) : (
-                <video
-                  src={file.preview}
-                  muted
-                  playsInline
-                  className="w-full h-full object-cover rounded-lg"
-                />
-              )}
+        <div
+          className={`w-full p-1 border-2 border-dashed rounded-xl transition-colors ${
+            canUploadMore
+              ? 'border-gray-400/0 hover:border-gray-400/50 dark:hover:border-gray-600/50'
+              : 'border-transparent'
+          }`}
+          onDragOver={canUploadMore ? handleDragOver : undefined}
+          onDrop={handleDrop}>
+          <div className="grid grid-cols-3 gap-2">
+            {uploadedFiles.map((file) => (
+              <div key={file.id} className="relative group aspect-square">
+                {file.type === 'image' ? (
+                  <img
+                    src={file.preview}
+                    alt="Image preview"
+                    className="w-full h-full object-cover rounded-lg"
+                  />
+                ) : (
+                  <video
+                    src={file.preview}
+                    muted
+                    playsInline
+                    className="w-full h-full object-cover rounded-lg"
+                  />
+                )}
+                <button
+                  onClick={() => onFileRemove(file.id)}
+                  className="absolute top-1 right-1 p-1 bg-black/60 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                  aria-label="Remove file"
+                  title="Remove file">
+                  <XMarkIcon className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+            {canUploadMore && (
               <button
-                onClick={() => onFileRemove(file.id)}
-                className="absolute top-1 right-1 p-1 bg-black/60 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity"
-                aria-label="Remove file"
-                title="Remove file">
-                <XMarkIcon className="w-4 h-4" />
+                onClick={handleClick}
+                className="aspect-square border-2 border-dashed border-gray-400 dark:border-gray-600 rounded-lg flex flex-col items-center justify-center text-gray-500 dark:text-gray-400 cursor-pointer hover:bg-gray-200/50 dark:hover:bg-gray-700/50 hover:border-purple-500 transition-colors"
+                aria-label="Add more files">
+                <PlusIcon className="w-10 h-10 mb-1" />
+                <p className="text-sm">Add more</p>
               </button>
-            </div>
-          ))}
+            )}
+          </div>
         </div>
       ) : (
         <div
@@ -130,26 +169,24 @@ const MediaUploader: React.FC<MediaUploaderProps> = ({
           <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
             or click to browse
           </p>
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={(e) =>
-              e.target.files && handleFileChange(e.target.files)
-            }
-            className="hidden"
-            accept={acceptType}
-            multiple={!hasVideo}
-            disabled={!canUploadMore}
-          />
         </div>
       )}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={(e) => e.target.files && handleFileChange(e.target.files)}
+        className="hidden"
+        accept={acceptType}
+        multiple={!hasVideo}
+        disabled={!canUploadMore}
+      />
     </div>
   );
 };
 
 // --- API Helpers ---
 
-function bloblToBase64(blob: Blob) {
+function blobToBase64(blob: Blob) {
   return new Promise<string>(async (resolve) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -186,7 +223,7 @@ async function processVideoGenerationOperation(operation: any): Promise<string[]
           );
         }
         const blob = await res.blob();
-        return bloblToBase64(blob);
+        return blobToBase64(blob);
       }),
     );
   } else {
@@ -274,6 +311,7 @@ export const App: React.FC = () => {
   const [playingVideo, setPlayingVideo] = useState<Video | null>(null);
   const [editingVideo, setEditingVideo] = useState<Video | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isCreatingPrompt, setIsCreatingPrompt] = useState(false);
   const [generationError, setGenerationError] = useState<string[] | null>(
     null,
   );
@@ -299,39 +337,44 @@ export const App: React.FC = () => {
   }, [theme]);
 
   const handleFilesUpload = (files: File[]) => {
-    const newFiles: UploadedFile[] = [];
     const hasVideoAlready = uploadedFiles.some((f) => f.type === 'video');
+    if (hasVideoAlready) return;
 
-    for (const file of files) {
-      if (file.type.startsWith('video/')) {
-        if (uploadedFiles.length === 0) {
-          newFiles.push({
+    const containsVideo = Array.from(files).some((f) =>
+      f.type.startsWith('video/'),
+    );
+
+    if (containsVideo) {
+      const videoFile = Array.from(files).find((f) =>
+        f.type.startsWith('video/'),
+      );
+      if (videoFile) {
+        setUploadedFiles([
+          {
             id: self.crypto.randomUUID(),
-            file,
-            preview: URL.createObjectURL(file),
+            file: videoFile,
+            preview: URL.createObjectURL(videoFile),
             type: 'video',
-          });
-          // Allow only one video
-          break;
-        }
-      } else if (file.type.startsWith('image/')) {
-        if (!hasVideoAlready) {
-          newFiles.push({
-            id: self.crypto.randomUUID(),
-            file,
-            preview: URL.createObjectURL(file),
-            type: 'image',
-          });
-        }
+          },
+        ]);
+      }
+      return;
+    }
+
+    const newImageFiles: UploadedFile[] = [];
+    for (const file of files) {
+      if (file.type.startsWith('image/')) {
+        newImageFiles.push({
+          id: self.crypto.randomUUID(),
+          file,
+          preview: URL.createObjectURL(file),
+          type: 'image',
+        });
       }
     }
 
-    if (newFiles.length > 0) {
-      if (newFiles[0].type === 'video') {
-        setUploadedFiles(newFiles);
-      } else {
-        setUploadedFiles((prev) => [...prev, ...newFiles]);
-      }
+    if (newImageFiles.length > 0) {
+      setUploadedFiles((prev) => [...prev, ...newImageFiles]);
     }
   };
 
@@ -427,18 +470,53 @@ export const App: React.FC = () => {
     setGenerationError(null);
 
     try {
+      let finalPrompt = prompt;
+
+      if (
+        uploadedFiles.length > 1 &&
+        uploadedFiles.every((f) => f.type === 'image')
+      ) {
+        setIsCreatingPrompt(true);
+        const imageParts = await Promise.all(
+          uploadedFiles.map(async (file) => {
+            const base64 = await blobToBase64(file.file);
+            return {
+              inlineData: {
+                data: base64,
+                mimeType: file.file.type,
+              },
+            };
+          }),
+        );
+
+        const promptEnhancementResponse = await ai.models.generateContent({
+          model: FLASH_MODEL_NAME,
+          contents: {
+            parts: [
+              ...imageParts,
+              {
+                text: `Based on the user's prompt "${prompt}" and the provided images, create a single, detailed, and vivid paragraph describing a scene for a video. The scene should creatively incorporate elements from all the images. For example, you could take a character from one image and place them in the scene of another. Be descriptive about visual details, camera movements, lighting, and mood. This description will be used to generate a high-quality video.`,
+              },
+            ],
+          },
+        });
+        finalPrompt = promptEnhancementResponse.text;
+        setPrompt(finalPrompt);
+        setIsCreatingPrompt(false);
+      }
+
       let imageInput: {base64: string; mimeType: string};
       const firstFile = uploadedFiles[0];
 
       if (firstFile.type === 'video') {
         imageInput = await extractFrameFromVideo(firstFile.file);
       } else {
-        const base64 = await bloblToBase64(firstFile.file);
+        const base64 = await blobToBase64(firstFile.file);
         imageInput = {base64, mimeType: firstFile.file.type};
       }
 
       const effect = EFFECTS.find((e) => e.name === selectedEffect);
-      const fullPrompt = prompt + (effect ? effect.prompt : '');
+      const fullPrompt = finalPrompt + (effect ? effect.prompt : '');
 
       const videoObjects = await generateVideoFromImageAndText(
         fullPrompt,
@@ -470,11 +548,12 @@ export const App: React.FC = () => {
       ]);
     } finally {
       setIsSaving(false);
+      setIsCreatingPrompt(false);
     }
   };
 
   if (isSaving) {
-    return <SavingProgressPage />;
+    return <SavingProgressPage isCreatingPrompt={isCreatingPrompt} />;
   }
 
   return (
@@ -635,9 +714,18 @@ export const App: React.FC = () => {
 
                   <button
                     onClick={handleGenerate}
-                    disabled={!prompt || uploadedFiles.length === 0 || isAssisting}
+                    disabled={
+                      !prompt ||
+                      uploadedFiles.length === 0 ||
+                      isAssisting ||
+                      isCreatingPrompt
+                    }
                     className="mt-6 w-full px-6 py-3 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold transition-colors disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-100 dark:focus:ring-offset-gray-800 focus:ring-purple-500">
-                    {isAssisting ? 'Assisting...' : 'Generate Video'}
+                    {isAssisting
+                      ? 'Assisting...'
+                      : isCreatingPrompt
+                      ? 'Creating prompt...'
+                      : 'Generate Video'}
                   </button>
                 </div>
               </div>
