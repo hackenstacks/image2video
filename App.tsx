@@ -7,6 +7,7 @@ import {
   EditVideoPage,
   ErrorModal,
   HelpModal,
+  ImageViewer,
   SavingProgressPage,
   VideoGrid,
   VideoPlayer,
@@ -14,6 +15,7 @@ import {
   ChevronDownIcon,
   DocumentArrowUpIcon,
   MoonIcon,
+  PhotoIcon,
   PlusIcon,
   QuestionMarkCircleIcon,
   SparklesIcon,
@@ -22,12 +24,24 @@ import {
   VideoCameraIcon,
   XMarkIcon,
 } from './components';
-import {MOCK_VIDEOS} from './constants';
-import {Video} from './types';
+import {
+  INITIAL_GALLERY_ITEMS,
+  DEFAULT_VEO_MODEL,
+  DEFAULT_IMAGEN_MODEL,
+  DEFAULT_FLASH_MODEL,
+} from './constants';
+import {Artwork, ImageArtwork, Video} from './types';
 import {GeneratedVideo, GoogleGenAI} from '@google/genai';
 
-const VEO_MODEL_NAME = 'veo-2.0-generate-001';
-const FLASH_MODEL_NAME = 'gemini-2.5-flash';
+// Use model names from environment variables with fallbacks to defaults
+const VEO_MODEL_NAME = process.env.VIDEO_MODEL_NAME ?? DEFAULT_VEO_MODEL;
+const IMAGEN_MODEL_NAME = process.env.IMAGE_MODEL_NAME ?? DEFAULT_IMAGEN_MODEL;
+const FLASH_MODEL_NAME = process.env.TEXT_MODEL_NAME ?? DEFAULT_FLASH_MODEL;
+
+// Determine if features are enabled based on model configuration
+const isVideoGenEnabled = !!VEO_MODEL_NAME;
+const isImageGenEnabled = !!IMAGEN_MODEL_NAME;
+const isPromptAssistEnabled = !!FLASH_MODEL_NAME;
 
 const ai = new GoogleGenAI({apiKey: process.env.API_KEY});
 
@@ -76,12 +90,14 @@ interface MediaUploaderProps {
   onFilesUpload: (files: File[]) => void;
   onFileRemove: (fileId: string) => void;
   uploadedFiles: UploadedFile[];
+  disabled?: boolean;
 }
 
 const MediaUploader: React.FC<MediaUploaderProps> = ({
   onFilesUpload,
   onFileRemove,
   uploadedFiles,
+  disabled = false,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hasVideo = uploadedFiles.some((f) => f.type === 'video');
@@ -105,19 +121,23 @@ const MediaUploader: React.FC<MediaUploaderProps> = ({
   };
 
   const acceptType = hasVideo ? '' : 'image/*,video/*';
-  const canUploadMore = !hasVideo;
+  const canUploadMore = !hasVideo && !disabled;
+  const isDisabled = disabled || !canUploadMore;
+
+  const disabledClasses =
+    'opacity-50 cursor-not-allowed hover:border-gray-400 dark:hover:border-gray-600';
 
   return (
     <div className="w-full">
       {uploadedFiles.length > 0 ? (
         <div
           className={`w-full p-1 border-2 border-dashed rounded-xl transition-colors ${
-            canUploadMore
-              ? 'border-gray-400/0 hover:border-gray-400/50 dark:hover:border-gray-600/50'
-              : 'border-transparent'
+            isDisabled
+              ? 'border-transparent'
+              : 'border-gray-400/0 hover:border-gray-400/50 dark:hover:border-gray-600/50'
           }`}
-          onDragOver={canUploadMore ? handleDragOver : undefined}
-          onDrop={handleDrop}>
+          onDragOver={isDisabled ? undefined : handleDragOver}
+          onDrop={isDisabled ? undefined : handleDrop}>
           <div className="grid grid-cols-3 gap-2">
             {uploadedFiles.map((file) => (
               <div key={file.id} className="relative group aspect-square">
@@ -144,7 +164,7 @@ const MediaUploader: React.FC<MediaUploaderProps> = ({
                 </button>
               </div>
             ))}
-            {canUploadMore && (
+            {!isDisabled && (
               <button
                 onClick={handleClick}
                 className="aspect-square border-2 border-dashed border-gray-400 dark:border-gray-600 rounded-lg flex flex-col items-center justify-center text-gray-500 dark:text-gray-400 cursor-pointer hover:bg-gray-200/50 dark:hover:bg-gray-700/50 hover:border-purple-500 transition-colors"
@@ -157,18 +177,28 @@ const MediaUploader: React.FC<MediaUploaderProps> = ({
         </div>
       ) : (
         <div
-          className="w-full h-48 border-2 border-dashed border-gray-400 dark:border-gray-600 rounded-xl flex flex-col items-center justify-center text-gray-500 dark:text-gray-400 cursor-pointer hover:bg-gray-200/50 dark:hover:bg-gray-700/50 hover:border-purple-500 transition-colors"
-          onDragOver={handleDragOver}
-          onDrop={handleDrop}
-          onClick={handleClick}
-          role="button"
-          tabIndex={0}
+          className={`w-full h-48 border-2 border-dashed rounded-xl flex flex-col items-center justify-center text-gray-500 dark:text-gray-400 transition-colors ${
+            isDisabled
+              ? disabledClasses
+              : 'cursor-pointer hover:bg-gray-200/50 dark:hover:bg-gray-700/50 hover:border-purple-500 border-gray-400 dark:border-gray-600'
+          }`}
+          onDragOver={isDisabled ? undefined : handleDragOver}
+          onDrop={isDisabled ? undefined : handleDrop}
+          onClick={isDisabled ? undefined : handleClick}
+          role={isDisabled ? undefined : 'button'}
+          tabIndex={isDisabled ? -1 : 0}
           aria-label="Upload media files">
           <UploadIcon className="w-10 h-10 mb-2" />
-          <p className="text-sm">Drag & drop images or a video</p>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-            or click to browse
+          <p className="text-sm">
+            {disabled
+              ? 'Media upload disabled for image generation'
+              : 'Drag & drop images or a video'}
           </p>
+          {!disabled && (
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+              or click to browse
+            </p>
+          )}
         </div>
       )}
       <input
@@ -178,7 +208,7 @@ const MediaUploader: React.FC<MediaUploaderProps> = ({
         className="hidden"
         accept={acceptType}
         multiple={!hasVideo}
-        disabled={!canUploadMore}
+        disabled={isDisabled}
       />
     </div>
   );
@@ -268,6 +298,24 @@ async function generateVideoFromImageAndText(
   return processVideoGenerationOperation(operation);
 }
 
+async function generateImagesFromText(
+  prompt: string,
+  numberOfImages: number,
+  aspectRatio: string,
+): Promise<string[]> {
+  const response = await ai.models.generateImages({
+    model: IMAGEN_MODEL_NAME,
+    prompt,
+    config: {
+      numberOfImages,
+      outputMimeType: 'image/jpeg',
+      aspectRatio,
+    },
+  });
+
+  return response.generatedImages.map((img) => img.image.imageBytes);
+}
+
 async function extractFrameFromVideo(
   videoFile: File,
 ): Promise<{base64: string; mimeType: string}> {
@@ -307,8 +355,10 @@ async function extractFrameFromVideo(
 }
 
 export const App: React.FC = () => {
-  const [videos, setVideos] = useState<Video[]>(MOCK_VIDEOS);
+  const [galleryItems, setGalleryItems] =
+    useState<Artwork[]>(INITIAL_GALLERY_ITEMS);
   const [playingVideo, setPlayingVideo] = useState<Video | null>(null);
+  const [viewingImage, setViewingImage] = useState<ImageArtwork | null>(null);
   const [editingVideo, setEditingVideo] = useState<Video | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isCreatingPrompt, setIsCreatingPrompt] = useState(false);
@@ -319,13 +369,25 @@ export const App: React.FC = () => {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const promptFileInputRef = useRef<HTMLInputElement>(null);
 
+  const [generationType, setGenerationType] = useState<
+    'video' | 'image' | 'none'
+  >(() => {
+    if (isVideoGenEnabled) return 'video';
+    if (isImageGenEnabled) return 'image';
+    return 'none';
+  });
+
   const [aspectRatio, setAspectRatio] = useState('16:9');
+  const [videoDuration, setVideoDuration] = useState(4);
+  const [numberOfImages, setNumberOfImages] = useState(1);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAssisting, setIsAssisting] = useState(false);
   const [hasAssisted, setHasAssisted] = useState(false);
   const [theme, setTheme] = useState('dark');
   const [showHelpModal, setShowHelpModal] = useState(false);
-  const [selectedEffect, setSelectedEffect] = useState(EFFECTS[0].name);
+  const [selectedEffect, setSelectedEffect] = useState(
+    () => localStorage.getItem('selectedEffect') || EFFECTS[0].name,
+  );
 
   useEffect(() => {
     const root = document.documentElement;
@@ -335,6 +397,10 @@ export const App: React.FC = () => {
       root.classList.remove('dark');
     }
   }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem('selectedEffect', selectedEffect);
+  }, [selectedEffect]);
 
   const handleFilesUpload = (files: File[]) => {
     const hasVideoAlready = uploadedFiles.some((f) => f.type === 'video');
@@ -448,15 +514,16 @@ export const App: React.FC = () => {
         title: `Remix of "${originalVideo.title}"`,
         description: originalVideo.description,
         videoUrl: `data:video/mp4;base64,${videoObjects[0]}`,
+        type: 'video',
       };
 
-      setVideos((currentVideos) => [newVideo, ...currentVideos]);
+      setGalleryItems((current) => [newVideo, ...current]);
       setPlayingVideo(newVideo);
     } catch (error) {
       console.error('Video generation failed:', error);
       setGenerationError([
-        'Video generation failed. Veo is only available on the Paid Tier.',
-        'Please select your Cloud Project to get started',
+        'Video generation failed. This may be due to a network issue or an invalid API key or model name.',
+        'Please check your configuration and try again.',
       ]);
     } finally {
       setIsSaving(false);
@@ -464,87 +531,119 @@ export const App: React.FC = () => {
   };
 
   const handleGenerate = async () => {
-    if (!prompt || uploadedFiles.length === 0) return;
+    if (
+      !prompt ||
+      (generationType === 'video' && uploadedFiles.length === 0)
+    ) {
+      return;
+    }
 
     setIsSaving(true);
     setGenerationError(null);
 
     try {
-      let finalPrompt = prompt;
+      const effect = EFFECTS.find((e) => e.name === selectedEffect);
+      let fullPrompt = prompt + (effect ? effect.prompt : '');
 
-      if (
-        uploadedFiles.length > 1 &&
-        uploadedFiles.every((f) => f.type === 'image')
-      ) {
-        setIsCreatingPrompt(true);
-        const imageParts = await Promise.all(
-          uploadedFiles.map(async (file) => {
-            const base64 = await blobToBase64(file.file);
-            return {
-              inlineData: {
-                data: base64,
-                mimeType: file.file.type,
-              },
-            };
-          }),
+      if (generationType === 'video') {
+        let finalPrompt = fullPrompt;
+
+        if (
+          uploadedFiles.length > 1 &&
+          uploadedFiles.every((f) => f.type === 'image')
+        ) {
+          setIsCreatingPrompt(true);
+          const imageParts = await Promise.all(
+            uploadedFiles.map(async (file) => {
+              const base64 = await blobToBase64(file.file);
+              return {
+                inlineData: {
+                  data: base64,
+                  mimeType: file.file.type,
+                },
+              };
+            }),
+          );
+
+          const promptEnhancementResponse = await ai.models.generateContent({
+            model: FLASH_MODEL_NAME,
+            contents: {
+              parts: [
+                ...imageParts,
+                {
+                  text: `Based on the user's prompt "${prompt}" and the provided images, create a single, detailed, and vivid paragraph describing a scene for a video. The scene should creatively incorporate elements from all the images. For example, you could take a character from one image and place them in the scene of another. Be descriptive about visual details, camera movements, lighting, and mood. This description will be used to generate a high-quality video.`,
+                },
+              ],
+            },
+          });
+          finalPrompt = promptEnhancementResponse.text;
+          setPrompt(finalPrompt);
+          setIsCreatingPrompt(false);
+        }
+
+        let imageInput: {base64: string; mimeType: string};
+        const firstFile = uploadedFiles[0];
+
+        if (firstFile.type === 'video') {
+          imageInput = await extractFrameFromVideo(firstFile.file);
+        } else {
+          const base64 = await blobToBase64(firstFile.file);
+          imageInput = {base64, mimeType: firstFile.file.type};
+        }
+
+        const durationPrompt = ` The video should be approximately ${videoDuration} seconds long.`;
+        finalPrompt += durationPrompt;
+
+        const videoObjects = await generateVideoFromImageAndText(
+          finalPrompt,
+          imageInput,
+          aspectRatio,
         );
 
-        const promptEnhancementResponse = await ai.models.generateContent({
-          model: FLASH_MODEL_NAME,
-          contents: {
-            parts: [
-              ...imageParts,
-              {
-                text: `Based on the user's prompt "${prompt}" and the provided images, create a single, detailed, and vivid paragraph describing a scene for a video. The scene should creatively incorporate elements from all the images. For example, you could take a character from one image and place them in the scene of another. Be descriptive about visual details, camera movements, lighting, and mood. This description will be used to generate a high-quality video.`,
-              },
-            ],
-          },
-        });
-        finalPrompt = promptEnhancementResponse.text;
-        setPrompt(finalPrompt);
-        setIsCreatingPrompt(false);
+        if (!videoObjects || videoObjects.length === 0) {
+          throw new Error('Video generation returned no data.');
+        }
+
+        const newVideo: Video = {
+          id: self.crypto.randomUUID(),
+          title: `Video from prompt: ${prompt.substring(0, 30)}...`,
+          description: fullPrompt,
+          videoUrl: `data:video/mp4;base64,${videoObjects[0]}`,
+          type: 'video',
+        };
+
+        setGalleryItems((current) => [newVideo, ...current]);
+        setPlayingVideo(newVideo);
+      } else if (generationType === 'image') {
+        // Image generation
+        const imageObjects = await generateImagesFromText(
+          fullPrompt,
+          numberOfImages,
+          aspectRatio,
+        );
+
+        const newImages: ImageArtwork[] = imageObjects.map((base64) => ({
+          id: self.crypto.randomUUID(),
+          title: `Image from prompt: ${prompt.substring(0, 30)}...`,
+          description: fullPrompt,
+          imageUrl: `data:image/jpeg;base64,${base64}`,
+          type: 'image',
+        }));
+
+        setGalleryItems((current) => [...newImages, ...current]);
+        if (newImages.length > 0) {
+          setViewingImage(newImages[0]);
+        }
       }
 
-      let imageInput: {base64: string; mimeType: string};
-      const firstFile = uploadedFiles[0];
-
-      if (firstFile.type === 'video') {
-        imageInput = await extractFrameFromVideo(firstFile.file);
-      } else {
-        const base64 = await blobToBase64(firstFile.file);
-        imageInput = {base64, mimeType: firstFile.file.type};
-      }
-
-      const effect = EFFECTS.find((e) => e.name === selectedEffect);
-      const fullPrompt = finalPrompt + (effect ? effect.prompt : '');
-
-      const videoObjects = await generateVideoFromImageAndText(
-        fullPrompt,
-        imageInput,
-        aspectRatio,
-      );
-
-      if (!videoObjects || videoObjects.length === 0) {
-        throw new Error('Video generation returned no data.');
-      }
-
-      const newVideo: Video = {
-        id: self.crypto.randomUUID(),
-        title: `Video from prompt: ${prompt.substring(0, 30)}...`,
-        description: fullPrompt,
-        videoUrl: `data:video/mp4;base64,${videoObjects[0]}`,
-      };
-
-      setVideos((currentVideos) => [newVideo, ...currentVideos]);
-      setPlayingVideo(newVideo);
       setPrompt('');
       setUploadedFiles([]);
       setHasAssisted(false);
     } catch (error) {
-      console.error('Video generation failed:', error);
+      console.error('Generation failed:', error);
       setGenerationError([
-        'Video generation failed. This may be due to a network issue or API key problem.',
-        'Please check your key and try again.',
+        'Generation failed. This may be due to a network issue or an invalid API key or model name.',
+        'Please check your configuration and try again.',
       ]);
     } finally {
       setIsSaving(false);
@@ -553,8 +652,29 @@ export const App: React.FC = () => {
   };
 
   if (isSaving) {
-    return <SavingProgressPage isCreatingPrompt={isCreatingPrompt} />;
+    const message =
+      generationType === 'video'
+        ? 'Generating your video...'
+        : 'Generating your image(s)...';
+    const subMessage =
+      generationType === 'video'
+        ? 'Please wait while we bring your vision to life. This may take a few minutes.'
+        : 'The AI is creating your masterpiece. This should be quick!';
+    return (
+      <SavingProgressPage
+        isCreatingPrompt={isCreatingPrompt}
+        message={message}
+        subMessage={subMessage}
+      />
+    );
   }
+
+  const isGenerateDisabled =
+    !prompt ||
+    (generationType === 'video' && uploadedFiles.length === 0) ||
+    isAssisting ||
+    isCreatingPrompt ||
+    generationType === 'none';
 
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-gradient-to-br dark:from-gray-900 dark:to-[#1c162c] text-gray-800 dark:text-gray-100 font-sans">
@@ -568,8 +688,8 @@ export const App: React.FC = () => {
         <div className="mx-auto max-w-[1080px]">
           <header className="p-6 md:p-8 flex justify-between items-center">
             <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-purple-500 via-pink-500 to-red-500 text-transparent bg-clip-text inline-flex items-center gap-3">
-              <VideoCameraIcon className="w-8 h-8 md:w-10 md:h-10" />
-              <span>AI Video Generator</span>
+              <SparklesIcon className="w-8 h-8 md:w-10 md:h-10" />
+              <span>AI Content Generator</span>
             </h1>
             <div className="flex items-center gap-2">
               <button
@@ -596,14 +716,60 @@ export const App: React.FC = () => {
           </header>
           <main className="px-4 md:px-8 pb-8">
             <section className="mb-12 p-6 md:p-8 bg-white dark:bg-gray-800/50 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-xl shadow-purple-900/10">
-              <h2 className="text-xl md:text-2xl font-bold mb-4 text-gray-900 dark:text-white">
-                Generate with Media & Text
-              </h2>
-              <div className="grid md:grid-cols-2 gap-6 items-start">
+              <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-6">
+                <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white">
+                  Create with AI
+                </h2>
+                <div className="mt-4 sm:mt-0 flex-shrink-0 p-1 bg-gray-200 dark:bg-gray-900/80 rounded-full">
+                  <div className="grid grid-cols-2 gap-1">
+                    <button
+                      onClick={() => setGenerationType('video')}
+                      disabled={!isVideoGenEnabled}
+                      className={`px-4 py-1.5 text-sm rounded-full transition-colors flex items-center justify-center gap-2 ${
+                        generationType === 'video'
+                          ? 'bg-white dark:bg-gray-700 text-purple-600 dark:text-white font-semibold shadow'
+                          : 'text-gray-600 dark:text-gray-300 hover:bg-white/50 dark:hover:bg-gray-800/50'
+                      } disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent`}>
+                      <VideoCameraIcon className="w-5 h-5" />
+                      Video
+                    </button>
+                    <button
+                      onClick={() => setGenerationType('image')}
+                      disabled={!isImageGenEnabled}
+                      className={`px-4 py-1.5 text-sm rounded-full transition-colors flex items-center justify-center gap-2 ${
+                        generationType === 'image'
+                          ? 'bg-white dark:bg-gray-700 text-purple-600 dark:text-white font-semibold shadow'
+                          : 'text-gray-600 dark:text-gray-300 hover:bg-white/50 dark:hover:bg-gray-800/50'
+                      } disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent`}>
+                      <PhotoIcon className="w-5 h-5" />
+                      Image
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {generationType === 'none' && (
+                <div className="text-center py-10 px-4 bg-yellow-100/50 dark:bg-yellow-900/20 rounded-xl">
+                  <p className="font-semibold text-yellow-800 dark:text-yellow-200">
+                    No generation models configured.
+                  </p>
+                  <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
+                    Please configure your API key and model names in your
+                    environment variables. See the help manual for more
+                    details.
+                  </p>
+                </div>
+              )}
+
+              <div
+                className={`grid md:grid-cols-2 gap-6 items-start ${
+                  generationType === 'none' ? 'hidden' : ''
+                }`}>
                 <MediaUploader
                   onFilesUpload={handleFilesUpload}
                   onFileRemove={handleFileRemove}
                   uploadedFiles={uploadedFiles}
+                  disabled={generationType === 'image'}
                 />
                 <div className="flex flex-col h-full">
                   <div className="flex justify-between items-center mb-1">
@@ -615,10 +781,16 @@ export const App: React.FC = () => {
                     <div className="flex items-center gap-3">
                       <button
                         onClick={handlePromptAssist}
-                        disabled={isAssisting || !prompt}
+                        disabled={
+                          isAssisting || !prompt || !isPromptAssistEnabled
+                        }
                         className="inline-flex items-center gap-1.5 text-sm text-purple-500 hover:text-purple-600 dark:text-purple-400 dark:hover:text-purple-300 font-medium transition-colors disabled:opacity-50 disabled:cursor-wait"
                         title={
-                          hasAssisted ? 'Regenerate prompt' : 'Assist with prompt'
+                          !isPromptAssistEnabled
+                            ? 'Prompt assist model not configured'
+                            : hasAssisted
+                            ? 'Regenerate prompt'
+                            : 'Assist with prompt'
                         }
                         aria-label="Assist with prompt generation">
                         {hasAssisted ? (
@@ -634,7 +806,7 @@ export const App: React.FC = () => {
                     id="prompt-input"
                     rows={5}
                     className="w-full bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-xl p-3 text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-shadow duration-200 flex-grow"
-                    placeholder="Describe the video you want to create..."
+                    placeholder="Describe what you want to create..."
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
                   />
@@ -708,31 +880,69 @@ export const App: React.FC = () => {
                             <option value="3:4">3:4 (Portrait)</option>
                           </select>
                         </div>
+                        {generationType === 'video' ? (
+                          <div>
+                            <label
+                              htmlFor="duration"
+                              className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                              Duration (seconds)
+                            </label>
+                            <input
+                              type="number"
+                              id="duration"
+                              value={videoDuration}
+                              min="1"
+                              max="10"
+                              onChange={(e) =>
+                                setVideoDuration(Number(e.target.value))
+                              }
+                              className="w-full bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-md p-2 text-sm text-gray-800 dark:text-gray-200 focus:ring-1 focus:ring-purple-500 focus:border-purple-500"
+                            />
+                          </div>
+                        ) : (
+                          <div>
+                            <label
+                              htmlFor="num-images"
+                              className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                              Number of Images
+                            </label>
+                            <input
+                              type="number"
+                              id="num-images"
+                              value={numberOfImages}
+                              min="1"
+                              max="4"
+                              onChange={(e) =>
+                                setNumberOfImages(Number(e.target.value))
+                              }
+                              className="w-full bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-md p-2 text-sm text-gray-800 dark:text-gray-200 focus:ring-1 focus:ring-purple-500 focus:border-purple-500"
+                            />
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
 
                   <button
                     onClick={handleGenerate}
-                    disabled={
-                      !prompt ||
-                      uploadedFiles.length === 0 ||
-                      isAssisting ||
-                      isCreatingPrompt
-                    }
+                    disabled={isGenerateDisabled}
                     className="mt-6 w-full px-6 py-3 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold transition-colors disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-100 dark:focus:ring-offset-gray-800 focus:ring-purple-500">
                     {isAssisting
                       ? 'Assisting...'
                       : isCreatingPrompt
                       ? 'Creating prompt...'
-                      : 'Generate Video'}
+                      : `Generate ${
+                          generationType.charAt(0).toUpperCase() +
+                          generationType.slice(1)
+                        }`}
                   </button>
                 </div>
               </div>
             </section>
             <VideoGrid
-              videos={videos}
+              videos={galleryItems}
               onPlayVideo={(video) => setPlayingVideo(video)}
+              onViewImage={(image) => setViewingImage(image)}
             />
           </main>
         </div>
@@ -746,6 +956,13 @@ export const App: React.FC = () => {
             setPlayingVideo(null);
             setEditingVideo(video);
           }}
+        />
+      )}
+
+      {viewingImage && (
+        <ImageViewer
+          image={viewingImage}
+          onClose={() => setViewingImage(null)}
         />
       )}
 
